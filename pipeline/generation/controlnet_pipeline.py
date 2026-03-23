@@ -136,12 +136,13 @@ def extract_object_patches(
 
 def load_pipeline(device: str = "cuda"):
     """
-    Load SDXL + Canny ControlNet pipeline.
-    Model: diffusers/controlnet-canny-sdxl-1.0 (confirmed public).
-    Requires ~8GB VRAM in float16.
+    Load SDXL + Canny ControlNet pipeline, optimised for Colab free tier (T4, ~15GB RAM).
 
-    Note: no public segmentation ControlNet exists for SDXL.
-    Canny edges are sufficient to condition object boundaries.
+    Key memory decisions:
+    - variant="fp16": loads fp16 weights directly, avoids fp32→fp16 conversion in RAM
+    - NO .to(device) before offload: loading to GPU first then offloading defeats the purpose
+    - enable_sequential_cpu_offload(): moves each submodule to GPU only when needed,
+      keeping peak VRAM well below the full model size (~4GB vs ~8GB)
     """
     import torch  # lazy — only needed on GPU
     from diffusers import ControlNetModel, StableDiffusionXLControlNetPipeline
@@ -149,15 +150,19 @@ def load_pipeline(device: str = "cuda"):
     controlnet = ControlNetModel.from_pretrained(
         "diffusers/controlnet-canny-sdxl-1.0",
         torch_dtype=torch.float16,
+        variant="fp16",
     )
 
     pipeline = StableDiffusionXLControlNetPipeline.from_pretrained(
         "stabilityai/stable-diffusion-xl-base-1.0",
         controlnet=controlnet,
         torch_dtype=torch.float16,
-    ).to(device)
+        variant="fp16",
+    )
 
-    pipeline.enable_model_cpu_offload()
+    # Sequential offload: submodules move to GPU one at a time during inference.
+    # Much lower peak RAM than enable_model_cpu_offload() or .to("cuda").
+    pipeline.enable_sequential_cpu_offload()
     return pipeline
 
 
