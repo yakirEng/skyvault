@@ -100,17 +100,54 @@ def generate_sdxl_scene(
     return scene
 
 
+def _make_asphalt_texture(h: int, w: int, rng: np.random.Generator) -> np.ndarray:
+    """Dark gray asphalt with gaussian noise."""
+    base = rng.integers(55, 75)
+    noise = rng.normal(0, 12, (h, w)).astype(np.float32)
+    gray = np.clip(base + noise, 30, 100).astype(np.uint8)
+    return np.stack([gray, gray, gray], axis=-1)
+
+
+def _generate_crosswalk_patch(alpha: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """
+    Procedural crosswalk patch — white stripes on asphalt.
+    Avoids SDXL for this class: crosswalks are simple geometry and SDXL
+    cannot reliably place them on roads when generating a full scene.
+
+    alpha: (h, w) bool — True where stripes are (from connected component)
+    Returns: (h, w, 3) uint8 RGB
+    """
+    h, w = alpha.shape
+    rgb = _make_asphalt_texture(h, w, rng)
+
+    # White stripes with slight noise for realism
+    stripe_base = int(rng.integers(220, 245))
+    stripe_noise = rng.normal(0, 8, (h, w)).astype(np.float32)
+    stripe_val = np.clip(stripe_base + stripe_noise, 195, 255).astype(np.uint8)
+
+    rgb[alpha, 0] = stripe_val[alpha]
+    rgb[alpha, 1] = stripe_val[alpha]
+    rgb[alpha, 2] = stripe_val[alpha]
+
+    return rgb
+
+
 def extract_object_patches(
     scene: np.ndarray,
     normalized_mask: np.ndarray,
+    seed: int = 0,
 ) -> list[ObjectPatch]:
     """
-    FIX #2: Extract per-instance object patches from SDXL output using
-    connected-component analysis on the layout mask.
+    Extract per-instance object patches from the SDXL output (classes 2-4)
+    and generate procedural patches for crosswalks (class 1).
 
-    Patches are extracted at the SAME pixel coordinates as the layout mask,
+    Crosswalks are generated procedurally because SDXL cannot reliably
+    place white stripes on road surfaces when generating a full scene.
+
+    All patches use the SAME pixel coordinates as the layout mask,
     guaranteeing alignment with the compositor (Fix #5).
     """
+    rng = np.random.default_rng(seed)
     patches = []
 
     for class_id in [1, 2, 3, 4]:
@@ -129,8 +166,15 @@ def extract_object_patches(
             y1, y2 = int(rows[0]), int(rows[-1]) + 1
             x1, x2 = int(cols[0]), int(cols[-1]) + 1
 
-            image = scene[y1:y2, x1:x2].copy()
             alpha = component[y1:y2, x1:x2]
+
+            if class_id == 1:
+                # Procedural: white stripes on asphalt — no domain gap, correct context
+                image = _generate_crosswalk_patch(alpha, rng)
+            else:
+                # SDXL-generated: extract from scene at layout coordinates
+                image = scene[y1:y2, x1:x2].copy()
+
             patches.append(ObjectPatch(image, alpha, class_id, (x1, y1, x2, y2)))
 
     return patches
@@ -181,7 +225,7 @@ def run_generation(
         edge_condition, pipeline, seed=layout_result.seed
     )
     normalized_mask = export_mask(layout_result.canvas)
-    patches = extract_object_patches(scene, normalized_mask)
+    patches = extract_object_patches(scene, normalized_mask, seed=layout_result.seed)
 
     return SDXLResult(
         scene=scene,

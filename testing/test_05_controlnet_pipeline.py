@@ -40,6 +40,7 @@ from pipeline.generation.controlnet_pipeline import (
     extract_object_patches,
     generate_sdxl_scene,
     run_generation,
+    _generate_crosswalk_patch,
     ObjectPatch,
     SDXLResult,
     MIN_COMPONENT_AREA,
@@ -188,6 +189,54 @@ def test_extract_patches_bbox_aligns_with_mask():
     p = patches[0]
     x1, y1, x2, y2 = p.bbox
     np.testing.assert_array_equal(p.image, scene[y1:y2, x1:x2])
+
+
+# ── procedural crosswalk ─────────────────────────────────────────────────────
+
+def test_crosswalk_patch_shape():
+    alpha = np.zeros((20, 60), dtype=bool)
+    alpha[5:15, :] = True
+    patch = _generate_crosswalk_patch(alpha, np.random.default_rng(0))
+    assert patch.shape == (20, 60, 3)
+    assert patch.dtype == np.uint8
+
+
+def test_crosswalk_stripes_are_bright():
+    """Stripe pixels must be significantly brighter than asphalt pixels."""
+    alpha = np.zeros((40, 60), dtype=bool)
+    alpha[10:20, :] = True  # one stripe
+    patch = _generate_crosswalk_patch(alpha, np.random.default_rng(0))
+    stripe_brightness = patch[alpha].mean()
+    asphalt_brightness = patch[~alpha].mean()
+    assert stripe_brightness > asphalt_brightness + 100
+
+
+def test_crosswalk_patch_is_procedural_not_from_scene():
+    """Class 1 patches must NOT be extracted from the SDXL scene."""
+    # Scene is solid red — if crosswalk were extracted from scene it would be red
+    scene = np.full((1024, 1024, 3), [255, 0, 0], dtype=np.uint8)
+    mask = np.zeros((1024, 1024), dtype=np.uint8)
+    # Place a crosswalk stripe (area > MIN_COMPONENT_AREA[1]=200)
+    mask[200:215, 300:320] = 1  # 15×20 = 300px > 200
+    patches = extract_object_patches(scene, mask, seed=0)
+    assert len(patches) == 1
+    assert patches[0].class_id == 1
+    # Procedural patch is grayscale (R≈G≈B). Scene-extracted would be red (R≫G,B).
+    r = patches[0].image[:, :, 0].mean()
+    g = patches[0].image[:, :, 1].mean()
+    assert abs(float(r) - float(g)) < 10, "Crosswalk patch should be grayscale, not scene-colored"
+
+
+def test_sdxl_classes_extracted_from_scene():
+    """Classes 2-4 must be extracted from the SDXL scene."""
+    scene = np.full((1024, 1024, 3), [255, 0, 0], dtype=np.uint8)  # solid red
+    mask = np.zeros((1024, 1024), dtype=np.uint8)
+    mask[100:320, 200:675] = 2  # tennis court
+    patches = extract_object_patches(scene, mask, seed=0)
+    assert len(patches) == 1
+    assert patches[0].class_id == 2
+    # Should be red — extracted from the red scene
+    assert patches[0].image[:, :, 0].mean() > 200
 
 
 # ── generate_sdxl_scene (mocked) ──────────────────────────────────────────────
