@@ -12,16 +12,17 @@ from pipeline.layout.palette import mask_to_ade20k_rgb, mask_to_canny_edges
 
 
 POSITIVE_PROMPT = (
-    "ultra-high resolution, 5cm per pixel drone photography, "
-    "top-down bird's eye view, Levantine architecture, "
-    "Israeli residential neighborhood, harsh Mediterranean sunlight, "
-    "sharp shadows, flat roofs with solar water heaters, "
-    "arid dry soil, dusty asphalt"
+    "nadir aerial orthophoto, straight-down view, remote sensing imagery, "
+    "bare ground surface, arid dry soil, dusty asphalt road, "
+    "overhead geospatial photograph, flat terrain, open land, "
+    "photogrammetry map, high resolution orthoimage"
 )
 
 NEGATIVE_PROMPT = (
-    "slanted roofs, snow, european architecture, "
-    "isometric view, blurry, low resolution, satellite view"
+    "architecture, building facade, wall, tiles, brick, roof, window, "
+    "3D render, shadows, depth, perspective, isometric, oblique, "
+    "solar panels, interior, indoors, closeup, blurry, low resolution, "
+    "painting, illustration, cartoon, snow, vegetation canopy"
 )
 
 MIN_COMPONENT_AREA: dict[int, int] = {
@@ -89,7 +90,7 @@ def generate_sdxl_scene(
         negative_prompt=NEGATIVE_PROMPT,
         image=edge_pil,
         controlnet_conditioning_scale=conditioning_scale,
-        num_inference_steps=30,
+        num_inference_steps=50,
         generator=generator,
         width=1024,
         height=1024,
