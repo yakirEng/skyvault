@@ -61,19 +61,20 @@ def build_conditions(layout_result: LayoutResult) -> tuple[np.ndarray, np.ndarra
 
 
 def generate_sdxl_scene(
-    seg_condition: np.ndarray,
     edge_condition: np.ndarray,
     pipeline,
     seed: int,
-    conditioning_scale: list[float] = [0.8, 0.5],
+    conditioning_scale: float = 0.8,
 ) -> np.ndarray:
     """
-    Run SDXL inference with two ControlNet conditions (seg + edge).
+    Run SDXL inference conditioned on Canny edges.
+    Uses diffusers/controlnet-canny-sdxl-1.0 (single ControlNet).
     Returns the generated image as (1024, 1024, 3) uint8 numpy array.
+
+    Note: there is no publicly available segmentation ControlNet for SDXL.
+    The seg_condition is computed for visualization purposes only.
     """
     import torch  # lazy — only needed on GPU
-
-    seg_pil = Image.fromarray(seg_condition)
 
     # edge_condition is grayscale — diffusers expects 3-channel PIL
     edge_rgb = np.stack([edge_condition] * 3, axis=-1)
@@ -85,7 +86,7 @@ def generate_sdxl_scene(
     result = pipeline(
         prompt=POSITIVE_PROMPT,
         negative_prompt=NEGATIVE_PROMPT,
-        image=[seg_pil, edge_pil],
+        image=edge_pil,
         controlnet_conditioning_scale=conditioning_scale,
         num_inference_steps=30,
         generator=generator,
@@ -135,26 +136,24 @@ def extract_object_patches(
 
 def load_pipeline(device: str = "cuda"):
     """
-    Load Multi-ControlNet SDXL pipeline with seg + canny ControlNets.
-    Requires ~10GB VRAM in float16.
+    Load SDXL + Canny ControlNet pipeline.
+    Model: diffusers/controlnet-canny-sdxl-1.0 (confirmed public).
+    Requires ~8GB VRAM in float16.
+
+    Note: no public segmentation ControlNet exists for SDXL.
+    Canny edges are sufficient to condition object boundaries.
     """
     import torch  # lazy — only needed on GPU
     from diffusers import ControlNetModel, StableDiffusionXLControlNetPipeline
 
-    controlnets = [
-        ControlNetModel.from_pretrained(
-            "diffusers/controlnet-seg-sdxl-1.0",
-            torch_dtype=torch.float16,
-        ),
-        ControlNetModel.from_pretrained(
-            "diffusers/controlnet-canny-sdxl-1.0",
-            torch_dtype=torch.float16,
-        ),
-    ]
+    controlnet = ControlNetModel.from_pretrained(
+        "diffusers/controlnet-canny-sdxl-1.0",
+        torch_dtype=torch.float16,
+    )
 
     pipeline = StableDiffusionXLControlNetPipeline.from_pretrained(
         "stabilityai/stable-diffusion-xl-base-1.0",
-        controlnet=controlnets,
+        controlnet=controlnet,
         torch_dtype=torch.float16,
     ).to(device)
 
@@ -172,7 +171,7 @@ def run_generation(
     """
     seg_condition, edge_condition = build_conditions(layout_result)
     scene = generate_sdxl_scene(
-        seg_condition, edge_condition, pipeline, seed=layout_result.seed
+        edge_condition, pipeline, seed=layout_result.seed
     )
     normalized_mask = export_mask(layout_result.canvas)
     patches = extract_object_patches(scene, normalized_mask)

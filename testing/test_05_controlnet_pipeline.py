@@ -193,15 +193,15 @@ def test_extract_patches_bbox_aligns_with_mask():
 # ── generate_sdxl_scene (mocked) ──────────────────────────────────────────────
 
 def test_generate_sdxl_scene_output_shape(layout, mock_pipeline):
-    seg, edge = build_conditions(layout)
-    scene = generate_sdxl_scene(seg, edge, mock_pipeline, seed=42)
+    _, edge = build_conditions(layout)
+    scene = generate_sdxl_scene(edge, mock_pipeline, seed=42)
     assert scene.shape == (1024, 1024, 3)
     assert scene.dtype == np.uint8
 
 
 def test_generate_sdxl_scene_calls_pipeline_once(layout, mock_pipeline):
-    seg, edge = build_conditions(layout)
-    generate_sdxl_scene(seg, edge, mock_pipeline, seed=0)
+    _, edge = build_conditions(layout)
+    generate_sdxl_scene(edge, mock_pipeline, seed=0)
     mock_pipeline.assert_called_once()
 
 
