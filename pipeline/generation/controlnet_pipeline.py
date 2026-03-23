@@ -2,9 +2,9 @@ import cv2
 import numpy as np
 from dataclasses import dataclass
 
+# torch and diffusers are GPU-only deps — imported lazily inside the functions
+# that need them so the module can be imported on CPU-only machines for testing.
 from PIL import Image
-import torch
-from diffusers import ControlNetModel, StableDiffusionXLControlNetPipeline
 
 from pipeline.config import PipelineConfig
 from pipeline.layout.generator import LayoutResult, export_mask
@@ -71,6 +71,8 @@ def generate_sdxl_scene(
     Run SDXL inference with two ControlNet conditions (seg + edge).
     Returns the generated image as (1024, 1024, 3) uint8 numpy array.
     """
+    import torch  # lazy — only needed on GPU
+
     seg_pil = Image.fromarray(seg_condition)
 
     # edge_condition is grayscale — diffusers expects 3-channel PIL
@@ -136,6 +138,9 @@ def load_pipeline(device: str = "cuda"):
     Load Multi-ControlNet SDXL pipeline with seg + canny ControlNets.
     Requires ~10GB VRAM in float16.
     """
+    import torch  # lazy — only needed on GPU
+    from diffusers import ControlNetModel, StableDiffusionXLControlNetPipeline
+
     controlnets = [
         ControlNetModel.from_pretrained(
             "diffusers/controlnet-seg-sdxl-1.0",
