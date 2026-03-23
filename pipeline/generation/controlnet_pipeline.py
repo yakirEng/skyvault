@@ -80,8 +80,9 @@ def generate_sdxl_scene(
     edge_rgb = np.stack([edge_condition] * 3, axis=-1)
     edge_pil = Image.fromarray(edge_rgb)
 
-    device = next(pipeline.unet.parameters()).device
-    generator = torch.Generator(device=device).manual_seed(seed)
+    # Use CPU generator — compatible with sequential_cpu_offload which places
+    # parameters on a meta device, making pipeline.unet.parameters().device unusable.
+    generator = torch.Generator(device="cpu").manual_seed(seed)
 
     result = pipeline(
         prompt=POSITIVE_PROMPT,
